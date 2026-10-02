@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mario Sandbox 2D - Genially Compatible</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #5c94fc;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        .btn-touch {
+            touch-action: manipulation;
+        }
+        .btn-touch:active {
+            transform: scale(0.92);
+        }
+    </style>
+</head>
+<body class="flex flex-col h-full w-full justify-between items-center bg-[#5c94fc]">
+
+    <div id="game-container" class="relative w-full h-full flex flex-col justify-center items-center overflow-hidden">
+        
+        <!-- Header superior informativo -->
+        <div class="absolute top-2 left-2 right-2 flex justify-between items-center z-10 pointer-events-none text-white font-bold drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] text-xs sm:text-sm px-2">
+            <div class="bg-black/30 backdrop-blur-sm px-3 py-1 rounded-full border border-white/20">
+                🎮 Mario Sandbox 2D
+            </div>
+            <div class="hidden sm:block bg-black/30 backdrop-blur-sm px-3 py-1 rounded-full border border-white/20">
+                Usa ⬅️ ➡️ para moverte | ⬆️ Espacio para saltar
+            </div>
+        </div>
+
+        <!-- Canvas interactivo del juego -->
+        <canvas id="gameCanvas" class="shadow-2xl rounded-lg border-2 border-black/20 my-auto"></canvas>
+
+        <div class="absolute bottom-3 left-0 right-0 px-4 flex justify-between items-center z-20 pointer-events-auto sm:hidden max-w-lg mx-auto w-full">
+            <!-- D-Pad Controles Izquierda / Derecha -->
+            <div class="flex gap-2">
+                <button id="btn-left" class="btn-touch w-14 h-14 bg-red-600/90 hover:bg-red-500 text-white font-bold rounded-2xl shadow-lg border-b-4 border-red-800 flex items-center justify-center text-2xl active:bg-red-700">
+                    ◀
+                </button>
+                <button id="btn-right" class="btn-touch w-14 h-14 bg-red-600/90 hover:bg-red-500 text-white font-bold rounded-2xl shadow-lg border-b-4 border-red-800 flex items-center justify-center text-2xl active:bg-red-700">
+                    ▶
+                </button>
+            </div>
+            <!-- Botón de Salto -->
+            <button id="btn-jump" class="btn-touch w-16 h-16 bg-yellow-400/90 hover:bg-yellow-300 text-yellow-950 font-extrabold rounded-full shadow-lg border-b-4 border-yellow-600 flex items-center justify-center text-xl active:bg-yellow-500">
+                SALTAR
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Configuración lógica de resolución
+        const VIRTUAL_WIDTH = 480;
+        const VIRTUAL_HEIGHT = 270;
+
+        // Propiedades de la física
+        const GRAVITY = 0.45;
+        const FRICTION = 0.82;
+        const ACCELERATION = 0.55;
+        const MAX_SPEED = 3.2;
+        const JUMP_FORCE = -8.5;
+
+        // Estado de teclas e inputs táctiles
+        const keys = {
+            left: false,
+            right: false,
+            up: false
+        };
+
+        class Mario {
+            constructor() {
+                this.width = 14;
+                this.height = 20;
+                this.x = 50;
+                this.y = 100;
+                this.vx = 0;
+                this.vy = 0;
+                this.grounded = false;
+                this.facing = 'right'; // 'left' o 'right'
+                this.animFrame = 0;
+                this.animTimer = 0;
+            }
+
+            update(platforms) {
+                // Aplicar aceleración por controles
+                if (keys.left) {
+                    this.vx -= ACCELERATION;
+                    this.facing = 'left';
+                }
+                if (keys.right) {
+                    this.vx += ACCELERATION;
+                    this.facing = 'right';
+                }
+
+                // Salto con verificación de suelo
+                if (keys.up && this.grounded) {
+                    this.vy = JUMP_FORCE;
+                    this.grounded = false;
+                }
+
+                // Físicas: Ficción y Gravedad
+                this.vx *= FRICTION;
+                this.vy += GRAVITY;
+
+                // Limitar velocidad horizontal máxima
+                if (this.vx > MAX_SPEED) this.vx = MAX_SPEED;
+                if (this.vx < -MAX_SPEED) this.vx = -MAX_SPEED;
+
+                // Actualizar posiciones con detección de colisiones separada
+                this.x += this.vx;
+                this.checkHorizontalCollisions(platforms);
+
+                this.y += this.vy;
+                this.grounded = false;
+                this.checkVerticalCollisions(platforms);
+
+                // Evitar salirse de los márgenes laterales del mundo
+                if (this.x < 0) this.x = 0;
+                if (this.x + this.width > VIRTUAL_WIDTH) this.x = VIRTUAL_WIDTH - this.width;
+
+                // Reiniciar si cae al vacío
+                if (this.y > VIRTUAL_HEIGHT + 50) {
+                    this.x = 50;
+                    this.y = 50;
+                    this.vx = 0;
+                    this.vy = 0;
+                }
+
+                // Animación simple de caminata
+                if (Math.abs(this.vx) > 0.3 && this.grounded) {
+                    this.animTimer++;
+                    if (this.animTimer % 6 === 0) {
+                        this.animFrame = (this.animFrame + 1) % 2;
+                    }
+                } else {
+                    this.animFrame = 0;
+                }
+            }
+
+            checkHorizontalCollisions(platforms) {
+                for (let p of platforms) {
+                    if (this.collidesWith(p)) {
+                        if (this.vx > 0) {
+                            this.x = p.x - this.width;
+                            this.vx = 0;
+                        } else if (this.vx < 0) {
+                            this.x = p.x + p.w;
+                            this.vx = 0;
+                        }
+                    }
+                }
+            }
+
+            checkVerticalCollisions(platforms) {
+                for (let p of platforms) {
+                    if (this.collidesWith(p)) {
+                        if (this.vy > 0) { // Caída
+                            this.y = p.y - this.height;
+                            this.vy = 0;
+                            this.grounded = true;
+                        } else if (this.vy < 0) { // Chocar desde abajo
+                            this.y = p.y + p.h;
+                            this.vy = 0;
+                        }
+                    }
+                }
+            }
+
+            collidesWith(rect) {
+                return (
+                    this.x < rect.x + rect.w &&
+                    this.x + this.width > rect.x &&
+                    this.y < rect.y + rect.h &&
+                    this.y + this.height > rect.y
+                );
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(Math.round(this.x), Math.round(this.y));
+
+                // Voltear horizontalmente si mira a la izquierda
+                if (this.facing === 'left') {
+                    ctx.translate(this.width, 0);
+                    ctx.scale(-1, 1);
+                }
+
+                // Colores oficiales
+                const RED = '#e52521';
+                const BLUE = '#0020c2';
+                const SKIN = '#fcc082';
+                const BROWN = '#8d4004';
+                const YELLOW = '#f8d820';
+
+                if (!this.grounded) {
+                    // Sprite de Salto
+                    // Gorra / Pelo
+                    ctx.fillStyle = RED;
+                    ctx.fillRect(2, 0, 11, 4);
+                    // Cara
+                    ctx.fillStyle = SKIN;
+                    ctx.fillRect(2, 4, 9, 4);
+                    ctx.fillStyle = BROWN;
+                    ctx.fillRect(8, 4, 3, 2); // Bigote
+                    // Overol
+                    ctx.fillStyle = BLUE;
+                    ctx.fillRect(2, 8, 10, 8);
+                    ctx.fillStyle = RED;
+                    ctx.fillRect(0, 7, 4, 4); // Brazo levantado
+                    ctx.fillRect(10, 9, 4, 4); // Brazo atrás
+                    // Piernas en movimiento de salto
+                    ctx.fillStyle = BLUE;
+                    ctx.fillRect(0, 14, 6, 4);
+                    ctx.fillRect(7, 12, 5, 4);
+                    // Zapato
+                    ctx.fillStyle = BROWN;
+                    ctx.fillRect(-1, 16, 6, 4);
+                    ctx.fillRect(8, 15, 6, 4);
+                } else if (Math.abs(this.vx) > 0.3) {
+                    // Sprite de Caminata (2 Frames)
+                    ctx.fillStyle = RED;
+                    ctx.fillRect(3, 0, 9, 4); // Gorra
+                    ctx.fillStyle = SKIN;
+                    ctx.fillRect(3, 4, 8, 4); // Cara
+                    ctx.fillStyle = BROWN;
+                    ctx.fillRect(7, 4, 3, 2); // Bigote
+
+                    ctx.fillStyle = BLUE;
+                    ctx.fillRect(3, 8, 8, 7); // Cuerpo
+
+                    if (this.animFrame === 0) {
+                        // Paso 1
+                        ctx.fillStyle = RED;
+                        ctx.fillRect(1, 8, 3, 4);
+                        ctx.fillRect(10, 8, 3, 4);
+                        ctx.fillStyle = BROWN;
+                        ctx.fillRect(1, 15, 5, 5);
+                        ctx.fillRect(8, 15, 5, 5);
+                    } else {
+                        // Paso 2
+                        ctx.fillStyle = RED;
+                        ctx.fillRect(2, 8, 3, 4);
+                        ctx.fillRect(9, 8, 3, 4);
+                        ctx.fillStyle = BROWN;
+                        ctx.fillRect(0, 15, 6, 5);
+                        ctx.fillRect(8, 14, 5, 6);
+                    }
+                } else {
+                    // Sprite Estático (Idle)
+                    // Gorra
+                    ctx.fillStyle = RED;
+                    ctx.fillRect(3, 0, 9, 4);
+                    // Cara
+                    ctx.fillStyle = SKIN;
+                    ctx.fillRect(3, 4, 8, 4);
+                    ctx.fillStyle = BROWN;
+                    ctx.fillRect(7, 4, 3, 2);
+                    // Overol
+                    ctx.fillStyle = BLUE;
+                    ctx.fillRect(3, 8, 8, 8);
+                    // Brazos
+                    ctx.fillStyle = RED;
+                    ctx.fillRect(1, 8, 3, 5);
+                    ctx.fillRect(10, 8, 3, 5);
+                    // Botones de overol
+                    ctx.fillStyle = YELLOW;
+                    ctx.fillRect(4, 10, 2, 2);
+                    ctx.fillRect(8, 10, 2, 2);
+                    // Zapatos
+                    ctx.fillStyle = BROWN;
+                    ctx.fillRect(2, 16, 5, 4);
+                    ctx.fillRect(7, 16, 5, 4);
+                }
+
+                ctx.restore();
+            }
+        }
+
+        const platforms = [
+            // Suelo base principal
+            { x: 0, y: 240, w: 480, h: 30, type: 'ground' },
+
+            // Tubería verde clásica
+            { x: 80, y: 190, w: 32, h: 50, type: 'pipe' },
+            { x: 76, y: 180, w: 40, h: 10, type: 'pipe-top' },
+
+            // Bloques flotantes grupo 1
+            { x: 160, y: 170, w: 16, h: 16, type: 'brick' },
+            { x: 176, y: 170, w: 16, h: 16, type: 'question' },
+            { x: 192, y: 170, w: 16, h: 16, type: 'brick' },
+            { x: 208, y: 170, w: 16, h: 16, type: 'question' },
+            { x: 224, y: 170, w: 16, h: 16, type: 'brick' },
+
+            // Bloque alto individual
+            { x: 192, y: 110, w: 16, h: 16, type: 'question' },
+
+            // Tubería alta
+            { x: 290, y: 170, w: 32, h: 70, type: 'pipe' },
+            { x: 286, y: 160, w: 40, h: 10, type: 'pipe-top' },
+
+            // Escalera de bloques de piedra
+            { x: 360, y: 224, w: 16, h: 16, type: 'block' },
+            { x: 376, y: 208, w: 16, h: 32, type: 'block' },
+            { x: 392, y: 192, w: 16, h: 48, type: 'block' },
+            { x: 408, y: 176, w: 16, h: 64, type: 'block' }
+        ];
+
+        // Nubes de fondo estéticas
+        const clouds = [
+            { x: 40, y: 40, scale: 1 },
+            { x: 220, y: 30, scale: 1.2 },
+            { x: 380, y: 55, scale: 0.9 }
+        ];
+
+        // Arbustos de fondo
+        const bushes = [
+            { x: 30, y: 225 },
+            { x: 240, y: 225 }
+        ];
+
+        const mario = new Mario();
+
+        function drawDecorations() {
+            // Dibujar Nubes
+            clouds.forEach(cloud => {
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(cloud.x, cloud.y, 10 * cloud.scale, 0, Math.PI * 2);
+                ctx.arc(cloud.x + 10 * cloud.scale, cloud.y - 4 * cloud.scale, 12 * cloud.scale, 0, Math.PI * 2);
+                ctx.arc(cloud.x + 22 * cloud.scale, cloud.y, 10 * cloud.scale, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Dibujar Arbustos
+            bushes.forEach(b => {
+                ctx.fillStyle = '#00a800';
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, 8, 0, Math.PI * 2);
+                ctx.arc(b.x + 8, b.y - 4, 10, 0, Math.PI * 2);
+                ctx.arc(b.x + 16, b.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        function drawPlatforms() {
+            platforms.forEach(p => {
+                if (p.type === 'ground') {
+                    // Suelo de pasto y tierra
+                    ctx.fillStyle = '#00a800';
+                    ctx.fillRect(p.x, p.y, p.w, 4);
+                    ctx.fillStyle = '#c84c0c';
+                    ctx.fillRect(p.x, p.y + 4, p.w, p.h - 4);
+                    
+                    // Detalle de textura de tierra
+                    ctx.fillStyle = '#fcb088';
+                    for (let x = p.x; x < p.x + p.w; x += 16) {
+                        ctx.fillRect(x + 2, p.y + 8, 4, 4);
+                        ctx.fillRect(x + 10, p.y + 18, 4, 4);
+                    }
+                } else if (p.type === 'brick') {
+                    // Bloques de Ladrillo
+                    ctx.fillStyle = '#c84c0c';
+                    ctx.fillRect(p.x, p.y, p.w, p.h);
+                    ctx.fillStyle = '#000000';
+                    ctx.strokeRect(p.x + 0.5, p.y + 0.5, p.w, p.h);
+                    // Líneas del ladrillo
+                    ctx.fillStyle = '#fcb088';
+                    ctx.fillRect(p.x + 1, p.y + 1, p.w - 2, 1);
+                    ctx.fillRect(p.x + 1, p.y + 8, p.w - 2, 1);
+                } else if (p.type === 'question') {
+                    // Bloques de Signo de Interrogación
+                    ctx.fillStyle = '#fcb000';
+                    ctx.fillRect(p.x, p.y, p.w, p.h);
+                    ctx.fillStyle = '#000000';
+                    ctx.strokeRect(p.x + 0.5, p.y + 0.5, p.w, p.h);
+                    // Signo '?'
+                    ctx.fillStyle = '#884000';
+                    ctx.font = 'bold 12px monospace';
+                    ctx.fillText('?', p.x + 4, p.y + 12);
+                } else if (p.type === 'pipe' || p.type === 'pipe-top') {
+                    // Tuberías Verdes
+                    ctx.fillStyle = '#00a800';
+                    ctx.fillRect(p.x, p.y, p.w, p.h);
+                    ctx.fillStyle = '#80d010';
+                    ctx.fillRect(p.x + 2, p.y, 4, p.h);
+                    ctx.fillStyle = '#000000';
+                    ctx.strokeRect(p.x + 0.5, p.y + 0.5, p.w, p.h);
+                } else if (p.type === 'block') {
+                    // Bloques de Piedra / Escalera
+                    ctx.fillStyle = '#fcb088';
+                    ctx.fillRect(p.x, p.y, p.w, p.h);
+                    ctx.fillStyle = '#000000';
+                    ctx.strokeRect(p.x + 0.5, p.y + 0.5, p.w, p.h);
+                    ctx.fillStyle = '#884000';
+                    ctx.fillRect(p.x + 2, p.y + 2, p.w - 4, p.h - 4);
+                }
+            });
+        }
+
+        function resizeCanvas() {
+            const container = document.getElementById('game-container');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            
+            // Mantener la relación de aspecto 16:9
+            const aspect = VIRTUAL_WIDTH / VIRTUAL_HEIGHT;
+            let targetW = w;
+            let targetH = w / aspect;
+
+            if (targetH > h) {
+                targetH = h;
+                targetW = h * aspect;
+            }
+
+            canvas.style.width = `${targetW}px`;
+            canvas.style.height = `${targetH}px`;
+
+            canvas.width = VIRTUAL_WIDTH;
+            canvas.height = VIRTUAL_HEIGHT;
+
+            // Asegurar renderizado pixel-art sin desenfoque bilinear
+            ctx.imageSmoothingEnabled = false;
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        window.addEventListener('keydown', e => {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W' || e.key === ' ') {
+                keys.up = true;
+                e.preventDefault();
+            }
+        });
+
+        window.addEventListener('keyup', e => {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = false;
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = false;
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W' || e.key === ' ') keys.up = false;
+        });
+
+        // Eventos táctiles para dispositivos móviles
+        const bindTouch = (id, keyName) => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+
+            const start = (e) => {
+                e.preventDefault();
+                keys[keyName] = true;
+            };
+            const end = (e) => {
+                e.preventDefault();
+                keys[keyName] = false;
+            };
+
+            btn.addEventListener('touchstart', start, { passive: false });
+            btn.addEventListener('touchend', end, { passive: false });
+            btn.addEventListener('mousedown', start);
+            btn.addEventListener('mouseup', end);
+            btn.addEventListener('mouseleave', end);
+        };
+
+        bindTouch('btn-left', 'left');
+        bindTouch('btn-right', 'right');
+        bindTouch('btn-jump', 'up');
+
+        function gameLoop() {
+            // Limpiar fondo
+            ctx.fillStyle = '#5c94fc';
+            ctx.fillRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+
+            // Actualizar lógica
+            mario.update(platforms);
+
+            // Renderizar elementos
+            drawDecorations();
+            drawPlatforms();
+            mario.draw(ctx);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Iniciar al cargar la ventana
+        window.onload = () => {
+            resizeCanvas();
+            gameLoop();
+        };
+    </script>
+</body>
+</html>
